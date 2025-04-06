@@ -7,6 +7,7 @@ import (
 	"net"
 
 	"booking-service/config"
+	"booking-service/internal/client/inventory"
 	"booking-service/internal/interceptors"
 	"booking-service/internal/logger"
 	"booking-service/internal/repository"
@@ -20,6 +21,7 @@ import (
 
 func Run() {
 	logger.Init()
+
 	cfg := config.Load()
 
 	dsn := fmt.Sprintf(
@@ -37,22 +39,29 @@ func Run() {
 		log.Fatalf("unable to ping db: %v", err)
 	}
 
+	invClient, err := inventory.NewClient(cfg.InventoryServiceAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to inventory service: %v", err)
+	}
+	defer invClient.Close()
+
+	repo := repository.NewBookingRepository(db)
+	svc := service.NewBookingService(repo, invClient)
+	handler := server.NewBookingHandler(svc)
+
 	addr := fmt.Sprintf(":%s", cfg.GRPCPort)
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	repo := repository.NewBookingRepository(db)
-	svc := service.NewBookingService(repo)
-	handler := server.NewBookingHandler(svc)
-
 	grpcServer := grpc.NewServer(
 		grpc.UnaryInterceptor(interceptors.AuthInterceptor()),
 	)
+
 	bookingpb.RegisterBookingServiceServer(grpcServer, handler)
 
-	log.Printf("BookingService listening on %s", addr)
+	logger.Info("BookingService listening on ", addr)
 
 	if err := grpcServer.Serve(listener); err != nil {
 		log.Fatalf("failed to serve: %v", err)

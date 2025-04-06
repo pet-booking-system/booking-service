@@ -18,15 +18,34 @@ type BookingService interface {
 	GetStatus(ctx context.Context, bookingID uuid.UUID) (string, error)
 }
 
-type bookingService struct {
-	repo repository.BookingRepository
+type InventoryClient interface {
+	CheckAvailability(ctx context.Context, resourceID string) (bool, error)
+	UpdateStatus(ctx context.Context, resourceID, status string) error
 }
 
-func NewBookingService(repo repository.BookingRepository) BookingService {
-	return &bookingService{repo: repo}
+type bookingService struct {
+	repo      repository.BookingRepository
+	inventory InventoryClient
+}
+
+func NewBookingService(repo repository.BookingRepository, inventory InventoryClient) BookingService {
+	return &bookingService{
+		repo:      repo,
+		inventory: inventory,
+	}
 }
 
 func (s *bookingService) Create(ctx context.Context, input models.CreateBookingInput) (*models.Booking, error) {
+	ok, err := s.inventory.CheckAvailability(ctx, input.ResourceID.String())
+	if err != nil {
+		logger.Error("Inventory check failed: ", err)
+		return nil, status.Errorf(codes.Internal, "inventory check failed: %v", err)
+	}
+	if !ok {
+		logger.Info("Resource not available for booking: ", input.ResourceID)
+		return nil, status.Error(codes.FailedPrecondition, "resource not available")
+	}
+
 	id := uuid.New()
 	now := time.Now().UTC()
 
@@ -41,10 +60,14 @@ func (s *bookingService) Create(ctx context.Context, input models.CreateBookingI
 		UpdatedAt:  now,
 	}
 
-	err := s.repo.CreateBooking(ctx, booking)
-	if err != nil {
+	if err := s.repo.CreateBooking(ctx, booking); err != nil {
 		logger.Error("Failed to create booking in repo: ", err)
 		return nil, err
+	}
+
+	if err := s.inventory.UpdateStatus(ctx, input.ResourceID.String(), "booked"); err != nil {
+		logger.Error("Failed to update resource status to booked: ", err)
+		return nil, status.Errorf(codes.Internal, "inventory update failed: %v", err)
 	}
 
 	logger.Info("Created booking: ", booking.ID)
@@ -70,7 +93,12 @@ func (s *bookingService) Cancel(ctx context.Context, bookingID, userID uuid.UUID
 		return err
 	}
 
-	logger.Info("Booking canceled: ", bookingID)
+	if err := s.inventory.UpdateStatus(ctx, booking.ResourceID.String(), "available"); err != nil {
+		logger.Error("Failed to update resource status to available: ", err)
+		return err
+	}
+
+	logger.Info("Booking canceled and resource released: ", bookingID)
 	return nil
 }
 
