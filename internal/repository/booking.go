@@ -62,6 +62,11 @@ func (r *bookingRepo) GetBookingByID(ctx context.Context, id uuid.UUID) (*models
 		&b.CreatedAt, &b.UpdatedAt,
 	)
 
+	if err == sql.ErrNoRows {
+		logger.Info("Booking not found: ", id)
+		return nil, nil
+	}
+
 	if err != nil {
 		logger.Error("DB: failed to fetch booking: ", err)
 		return nil, err

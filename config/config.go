@@ -1,35 +1,35 @@
 package config
 
 import (
-	"log"
-
-	"github.com/spf13/viper"
+	"os"
 )
 
 type Config struct {
-	DBHost               string `mapstructure:"DB_HOST"`
-	DBPort               string `mapstructure:"DB_PORT"`
-	DBUser               string `mapstructure:"DB_USER"`
-	DBPassword           string `mapstructure:"DB_PASSWORD"`
-	DBName               string `mapstructure:"DB_NAME"`
-	DBSSLMode            string `mapstructure:"DB_SSLMODE"`
-	GRPCPort             string `mapstructure:"GRPC_PORT"`
-	AuthServiceURL       string `mapstructure:"AUTH_SERVICE_URL"`
-	InventoryServiceAddr string `mapstructure:"INVENTORY_SERVICE_ADDR"`
+	DBHost               string
+	DBPort               string
+	DBUser               string
+	DBPassword           string
+	DBName               string
+	DBSSLMode            string
+	GRPCPort             string
+	AuthServiceURL       string
+	InventoryServiceAddr string
+	PaymentServiceAddr   string
 }
 
 func Load() *Config {
-	viper.SetConfigFile(".env")
-	viper.AutomaticEnv()
-
-	if err := viper.ReadInConfig(); err != nil {
-		log.Printf("No .env file found: %v (env variables will still be used)", err)
+	cfg := &Config{
+		DBHost:               os.Getenv("DB_HOST"),
+		DBPort:               os.Getenv("DB_PORT"),
+		DBUser:               os.Getenv("DB_USER"),
+		DBPassword:           os.Getenv("DB_PASSWORD"),
+		DBName:               os.Getenv("DB_NAME"),
+		DBSSLMode:            os.Getenv("DB_SSLMODE"),
+		GRPCPort:             os.Getenv("GRPC_PORT"),
+		AuthServiceURL:       os.Getenv("AUTH_SERVICE_URL"),
+		InventoryServiceAddr: os.Getenv("INVENTORY_SERVICE_ADDR"),
+		PaymentServiceAddr:   os.Getenv("PAYMENT_SERVICE_ADDR"),
 	}
 
-	var cfg Config
-	if err := viper.Unmarshal(&cfg); err != nil {
-		log.Fatalf("Failed to parse config: %v", err)
-	}
-
-	return &cfg
+	return cfg
 }

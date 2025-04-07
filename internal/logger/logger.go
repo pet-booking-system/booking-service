@@ -23,3 +23,7 @@ func Error(args ...interface{}) {
 func Debug(args ...interface{}) {
 	log.Debug(args...)
 }
+
+func Warn(args ...interface{}) {
+	log.Warn(args...)
+}

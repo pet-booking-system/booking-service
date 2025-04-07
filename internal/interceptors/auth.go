@@ -76,7 +76,6 @@ func AuthInterceptor() grpc.UnaryServerInterceptor {
 			return nil, status.Error(codes.Unauthenticated, fmt.Sprintf("token validation failed: %v", err))
 		}
 
-		// добавляем user_id в context
 		ctx = context.WithValue(ctx, UserIDKey, authResp.UserID)
 
 		return handler(ctx, req)

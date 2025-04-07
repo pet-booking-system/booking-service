@@ -8,6 +8,7 @@ import (
 
 	"booking-service/config"
 	"booking-service/internal/client/inventory"
+	"booking-service/internal/client/payment"
 	"booking-service/internal/interceptors"
 	"booking-service/internal/logger"
 	"booking-service/internal/repository"
@@ -45,8 +46,14 @@ func Run() {
 	}
 	defer invClient.Close()
 
+	paymentClient, err := payment.NewClient(cfg.PaymentServiceAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to payment service: %v", err)
+	}
+	defer paymentClient.Close()
+
 	repo := repository.NewBookingRepository(db)
-	svc := service.NewBookingService(repo, invClient)
+	svc := service.NewBookingService(repo, invClient, *paymentClient)
 	handler := server.NewBookingHandler(svc)
 
 	addr := fmt.Sprintf(":%s", cfg.GRPCPort)

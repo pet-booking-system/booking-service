@@ -1,6 +1,7 @@
 package service
 
 import (
+	"booking-service/internal/client/payment"
 	"booking-service/internal/logger"
 	"booking-service/internal/models"
 	"booking-service/internal/repository"
@@ -26,12 +27,14 @@ type InventoryClient interface {
 type bookingService struct {
 	repo      repository.BookingRepository
 	inventory InventoryClient
+	payment   payment.Client
 }
 
-func NewBookingService(repo repository.BookingRepository, inventory InventoryClient) BookingService {
+func NewBookingService(repo repository.BookingRepository, inventory InventoryClient, payment payment.Client) BookingService {
 	return &bookingService{
 		repo:      repo,
 		inventory: inventory,
+		payment:   payment,
 	}
 }
 
@@ -70,7 +73,26 @@ func (s *bookingService) Create(ctx context.Context, input models.CreateBookingI
 		return nil, status.Errorf(codes.Internal, "inventory update failed: %v", err)
 	}
 
-	logger.Info("Created booking: ", booking.ID)
+	resp, err := s.payment.ProcessPayment(ctx, booking.ID.String(), input.UserID.String(), 10000)
+	if err != nil {
+		logger.Error("Payment processing failed: ", err)
+
+		_ = s.repo.UpdateBookingStatus(ctx, booking.ID, models.StatusCanceled)
+		_ = s.inventory.UpdateStatus(ctx, input.ResourceID.String(), "available")
+
+		return nil, status.Errorf(codes.Internal, "payment failed, booking canceled")
+	}
+
+	if resp.GetStatus() == "failed" {
+		logger.Warn("Payment was not successful")
+
+		_ = s.repo.UpdateBookingStatus(ctx, booking.ID, models.StatusCanceled)
+		_ = s.inventory.UpdateStatus(ctx, input.ResourceID.String(), "available")
+
+		return nil, status.Error(codes.Aborted, "payment unsuccessful, booking canceled")
+	}
+
+	logger.Info("Booking created and payment successful: ", booking.ID)
 	return booking, nil
 }
 
