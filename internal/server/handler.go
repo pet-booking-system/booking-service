@@ -56,7 +56,7 @@ func (h *BookingHandler) CreateBooking(ctx context.Context, req *bookingpb.Creat
 		EndTime:    end,
 	}
 
-	booking, err := h.service.Create(ctx, input)
+	booking, paymentID, err := h.service.Create(ctx, input)
 	if err != nil {
 		logger.Error("failed to create booking: ", err)
 		return nil, status.Errorf(codes.Internal, "failed to create booking: %v", err)
@@ -66,6 +66,7 @@ func (h *BookingHandler) CreateBooking(ctx context.Context, req *bookingpb.Creat
 	return &bookingpb.CreateBookingResponse{
 		BookingId: booking.ID.String(),
 		Status:    booking.Status,
+		PaymentId: paymentID,
 	}, nil
 }
 

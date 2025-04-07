@@ -14,7 +14,7 @@ import (
 )
 
 type BookingService interface {
-	Create(ctx context.Context, input models.CreateBookingInput) (*models.Booking, error)
+	Create(ctx context.Context, input models.CreateBookingInput) (*models.Booking, string, error)
 	Cancel(ctx context.Context, bookingID, userID uuid.UUID) error
 	GetStatus(ctx context.Context, bookingID uuid.UUID) (string, error)
 }
@@ -38,15 +38,15 @@ func NewBookingService(repo repository.BookingRepository, inventory InventoryCli
 	}
 }
 
-func (s *bookingService) Create(ctx context.Context, input models.CreateBookingInput) (*models.Booking, error) {
+func (s *bookingService) Create(ctx context.Context, input models.CreateBookingInput) (*models.Booking, string, error) {
 	ok, err := s.inventory.CheckAvailability(ctx, input.ResourceID.String())
 	if err != nil {
 		logger.Error("Inventory check failed: ", err)
-		return nil, status.Errorf(codes.Internal, "inventory check failed: %v", err)
+		return nil, "", status.Errorf(codes.Internal, "inventory check failed: %v", err)
 	}
 	if !ok {
 		logger.Info("Resource not available for booking: ", input.ResourceID)
-		return nil, status.Error(codes.FailedPrecondition, "resource not available")
+		return nil, "", status.Error(codes.FailedPrecondition, "resource not available")
 	}
 
 	id := uuid.New()
@@ -65,35 +65,31 @@ func (s *bookingService) Create(ctx context.Context, input models.CreateBookingI
 
 	if err := s.repo.CreateBooking(ctx, booking); err != nil {
 		logger.Error("Failed to create booking in repo: ", err)
-		return nil, err
+		return nil, "", err
 	}
 
 	if err := s.inventory.UpdateStatus(ctx, input.ResourceID.String(), "booked"); err != nil {
 		logger.Error("Failed to update resource status to booked: ", err)
-		return nil, status.Errorf(codes.Internal, "inventory update failed: %v", err)
+		return nil, "", status.Errorf(codes.Internal, "inventory update failed: %v", err)
 	}
 
 	resp, err := s.payment.ProcessPayment(ctx, booking.ID.String(), input.UserID.String(), 10000)
 	if err != nil {
 		logger.Error("Payment processing failed: ", err)
-
 		_ = s.repo.UpdateBookingStatus(ctx, booking.ID, models.StatusCanceled)
 		_ = s.inventory.UpdateStatus(ctx, input.ResourceID.String(), "available")
-
-		return nil, status.Errorf(codes.Internal, "payment failed, booking canceled")
+		return nil, "", status.Errorf(codes.Internal, "payment failed, booking canceled")
 	}
 
 	if resp.GetStatus() == "failed" {
 		logger.Warn("Payment was not successful")
-
 		_ = s.repo.UpdateBookingStatus(ctx, booking.ID, models.StatusCanceled)
 		_ = s.inventory.UpdateStatus(ctx, input.ResourceID.String(), "available")
-
-		return nil, status.Error(codes.Aborted, "payment unsuccessful, booking canceled")
+		return nil, "", status.Error(codes.Aborted, "payment unsuccessful, booking canceled")
 	}
 
 	logger.Info("Booking created and payment successful: ", booking.ID)
-	return booking, nil
+	return booking, resp.GetPaymentId(), nil
 }
 
 func (s *bookingService) Cancel(ctx context.Context, bookingID, userID uuid.UUID) error {
